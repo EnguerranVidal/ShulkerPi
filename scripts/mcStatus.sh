@@ -3,7 +3,7 @@
 # Check if correct number of arguments are provided
 if [ "$#" -ne 3 ]; then
     echo "Usage: $0 <server_directory> <server_jar_file> <memory_allocation>"
-    exit -1
+    exit 2
 fi
 
 server_directory="$1"
@@ -16,5 +16,5 @@ if pgrep -f "java -Xmx${memory_allocation} -Xms${memory_allocation} -jar $server
     exit 0
 else
     echo "Server is not running."
-    exit -1
+    exit 1
 fi

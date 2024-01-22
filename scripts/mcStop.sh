@@ -17,8 +17,6 @@ if pgrep -f "java -Xmx${memory_allocation} -Xms${memory_allocation} -jar $server
     sleep 5  # Wait for the server to shut down (adjust as needed)
 fi
 
-# Create the stop_flag file to prevent automatic restarts
+# Create the stop_flag file with content to prevent automatic restarts
 cd "$server_directory"
-touch stop_flag
-
-echo "Server stopped, and stop flag created. The server will not automatically restart."
+echo "Server stopped, and stop flag created. The server will not automatically restart." > stop_flag

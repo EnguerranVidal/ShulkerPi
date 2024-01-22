@@ -6,7 +6,8 @@ import discord
 from discord.ext import commands
 from dotenv import load_dotenv
 
-load_dotenv()
+CURRENT_FOLDER = os.path.dirname(os.path.realpath(__file__))
+load_dotenv(os.path.join(CURRENT_FOLDER, '.env'))
 TOKEN = os.getenv('DISCORD_TOKEN')
 GUILD = os.getenv('DISCORD_GUILD')
 SERVER_IP = os.getenv('SERVER_IP')
@@ -14,7 +15,7 @@ SERVER_FOLDER = os.getenv('SERVER_FOLDER')
 COMMAND_PREFIX = os.getenv('COMMAND_PREFIX')
 SERVER_FILE = os.getenv('SERVER_FILE')
 FLASH_MEMORY = os.getenv('FLASH_MEMORY')
-CURRENT_FOLDER = os.path.dirname(os.path.realpath(__file__))
+
 
 intents = discord.Intents.default()
 intents.members = True
@@ -25,8 +26,8 @@ bot = commands.Bot(command_prefix=COMMAND_PREFIX, intents=intents)
 @bot.event
 async def on_ready():
     guild = discord.utils.find(lambda g: g.name == GUILD, bot.guilds)
-    print(f'{bot.user} is connected to {guild.name}(id: {guild.id})')
-    print([member.name for member in guild.members])
+    # print(f'{bot.user} is connected to {guild.name}(id: {guild.id})')
+    # print([member.name for member in guild.members])
 
 
 @bot.command(name='hello', help='Responds with a hello message')
@@ -58,13 +59,16 @@ async def changePrefix(ctx, new_prefix):
 async def startMinecraftServer(ctx):
     arguments = [SERVER_FOLDER, SERVER_FILE, FLASH_MEMORY]
     statusBashScript = os.path.join(CURRENT_FOLDER, 'scripts/mcStatus.sh')
-    returnCode = subprocess.run([statusBashScript] + arguments).returncode
+    print(os.path.exists(statusBashScript))
+    returnCode = subprocess.run(['/bin/bash', statusBashScript] + arguments).returncode
     if returnCode == 0:
         await ctx.send('Server already running.')
-    else:
+    elif returnCode == 1:
         await ctx.send('Starting Minecraft server.')
         startBashScript = os.path.join(CURRENT_FOLDER, 'scripts/mcStart.sh')
-        subprocess.run([startBashScript] + arguments)
+        subprocess.Popen(['/bin/bash', startBashScript] + arguments)
+    else:
+        await ctx.send('Status Error.')
 
 
 @bot.command(name='stop-server', help='Stops the MC Server.')
@@ -73,14 +77,15 @@ async def stopMinecraftServer(ctx):
     # Checking if server is running
     arguments = [SERVER_FOLDER, SERVER_FILE, FLASH_MEMORY]
     statusBashScript = os.path.join(CURRENT_FOLDER, 'scripts/mcStatus.sh')
-    returnCode = subprocess.run([statusBashScript] + arguments).returncode
+    returnCode = subprocess.run(['/bin/bash', statusBashScript] + arguments).returncode
     if returnCode == 0:
         await ctx.send('Stopping Server.')
         stopBashScript = os.path.join(CURRENT_FOLDER, 'scripts/mcStop.sh')
         subprocess.run([stopBashScript] + arguments)
+    elif returnCode == 1:
         await ctx.send('Server not running.')
     else:
-        await ctx.send('Server not running.')
+        await ctx.send('Status Error.')
 
 
 @bot.command(name='reset-server', help='Resets the MC Server.')
@@ -89,13 +94,15 @@ async def resetMinecraftServer(ctx):
     # Checking if server is running
     arguments = [SERVER_FOLDER, SERVER_FILE, FLASH_MEMORY]
     statusBashScript = os.path.join(CURRENT_FOLDER, 'scripts/mcStatus.sh')
-    returnCode = subprocess.run([statusBashScript] + arguments).returncode
+    returnCode = subprocess.run(['/bin/bash', statusBashScript] + arguments).returncode
     if returnCode == 0:
         await ctx.send('Resetting Server.')
         stopBashScript = os.path.join(CURRENT_FOLDER, 'scripts/mcStop.sh')
         subprocess.run([stopBashScript] + arguments)
-    else:
+    elif returnCode == 1:
         await ctx.send('Server not running.')
+    else:
+        await ctx.send('Status Error.')
 
 
 @bot.command(name='status', help='Checks if the server is running.')
@@ -103,11 +110,13 @@ async def checkStatus(ctx):
     # Checking if server is running
     arguments = [SERVER_FOLDER, SERVER_FILE, FLASH_MEMORY]
     statusBashScript = os.path.join(CURRENT_FOLDER, 'scripts/mcStatus.sh')
-    returnCode = subprocess.run([statusBashScript] + arguments).returncode
+    returnCode = subprocess.run(['/bin/bash', statusBashScript] + arguments).returncode
     if returnCode == 0:
         await ctx.send('Server is running.')
-    else:
+    elif returnCode == 1:
         await ctx.send('Server is not running.')
+    else:
+        await ctx.send('Status Error.')
 
 
 @bot.command(name='ip', help='Gives the server\'s IP address.')
@@ -123,6 +132,8 @@ async def giveWorldSeed(ctx):
                 seedLine = line.replace('\n', '')
                 worldSeed = seedLine.split('=')[1]
                 chunkBaseLink = f'https://www.chunkbase.com/apps/seed-map#{worldSeed}'
-                await ctx.send(chunkBaseLink)
+                embed = discord.Embed(title='World Seed', description=f'The server\'s world seed is: {worldSeed}')
+                embed.add_field(name='ChunkBase Link', value=chunkBaseLink)
+                await ctx.send(embed=embed)
 
 bot.run(TOKEN)
