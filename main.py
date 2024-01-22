@@ -121,7 +121,8 @@ async def checkStatus(ctx):
 
 @bot.command(name='ip', help='Gives the server\'s IP address.')
 async def giveServerIp(ctx):
-    await ctx.send(f'The server\'s IP is {SERVER_IP}')
+    embed = discord.Embed(title='Server IP', description=f'The server\'s IP is: {SERVER_IP}', color=0x00ff00)
+    await ctx.send(embed=embed)
 
 
 @bot.command(name='seed', help='Gives the server\'s world seed.')
