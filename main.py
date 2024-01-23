@@ -1,6 +1,7 @@
 import os
 import random
 import subprocess
+import re
 
 import discord
 from discord.ext import commands
@@ -30,6 +31,7 @@ async def on_ready():
     # print([member.name for member in guild.members])
 
 
+######################## COMMANDS ########################
 @bot.command(name='hello', help='Responds with a hello message')
 async def hello(ctx):
     await ctx.send('Hello!')
@@ -133,8 +135,58 @@ async def giveWorldSeed(ctx):
                 seedLine = line.replace('\n', '')
                 worldSeed = seedLine.split('=')[1]
                 chunkBaseLink = f'https://www.chunkbase.com/apps/seed-map#{worldSeed}'
-                embed = discord.Embed(title='World Seed', description=f'The server\'s world seed is: {worldSeed}')
+                embed = discord.Embed(title='World Seed', description=f'The server\'s world seed is: {worldSeed}', color=0x00ff00)
                 embed.add_field(name='ChunkBase Link', value=chunkBaseLink)
                 await ctx.send(embed=embed)
+
+
+@bot.command(name='online', help='Give the number of online players.')
+async def nbPlayersOnline(ctx):
+    print('online')
+    # Checking if server is running
+    arguments = [SERVER_FOLDER, SERVER_FILE, FLASH_MEMORY]
+    statusBashScript = os.path.join(CURRENT_FOLDER, 'scripts/mcStatus.sh')
+    returnCode = subprocess.run(['/bin/bash', statusBashScript] + arguments).returncode
+    if returnCode == 0:
+        latestLogFilePath = os.path.join(SERVER_FOLDER, 'logs/latest.log')
+        nbPlayers, _ = getPlayersOnlineFromLogs(latestLogFilePath)
+        with open(os.path.join(SERVER_FOLDER, 'server.properties'), 'r') as file:
+            for line in file.readlines():
+                if line.startswith('max-players='):
+                    nbPlayersMax = line.split('=')[1]
+        await ctx.send(f'Online Players: {nbPlayers}/{nbPlayersMax}')
+    elif returnCode == 1:
+        await ctx.send('Server is not running.')
+    else:
+        await ctx.send('Status Error.')
+
+
+######################## FUNCTIONS ########################
+def getPlayersOnlineFromLogs(logFilePath):
+    try:
+        with open(logFilePath, 'r') as log_file:
+            lines = log_file.readlines()[-50:]
+            joinPattern = re.compile(r"\[Server thread/INFO\]: (\w+) joined the game")
+            leavePattern = re.compile(r"\[Server thread/INFO\]: (\w+) left the game")
+            players = set()
+            for line in lines:
+                joinMatch = joinPattern.search(line)
+                leaveMatch = leavePattern.search(line)
+                if joinMatch:
+                    playerName = joinMatch.group(1)
+                    players.add(playerName)
+                elif leaveMatch:
+                    playerName = leaveMatch.group(1)
+                    if playerName in players:
+                        players.remove(playerName)
+            nbOnline = len(players)
+            return nbOnline, players
+    except FileNotFoundError:
+        print(f"Log file not found: {logFilePath}")
+        return None
+    except Exception as e:
+        print(f"Error reading log file: {e}")
+        return None
+
 
 bot.run(TOKEN)
