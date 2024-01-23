@@ -39,19 +39,20 @@ async def hello(ctx):
 
 @bot.command(name='change-prefix', help='Change the command prefix')
 @commands.has_permissions(administrator=True)
-async def changePrefix(ctx, new_prefix):
-    if new_prefix:
+async def changePrefix(ctx, newPrefix):
+    embed = discord.Embed(title="Prefix Change", color=0x00ff00)
+    if newPrefix:
         with open('.env', 'r') as env_file:
             lines = env_file.readlines()
         with open('.env', 'w') as env_file:
             for line in lines:
                 if line.startswith('COMMAND_PREFIX='):
-                    env_file.write(f'COMMAND_PREFIX={new_prefix}\n')
+                    env_file.write(f'COMMAND_PREFIX={newPrefix}\n')
                 else:
                     env_file.write(line)
         load_dotenv()
-        bot.command_prefix = new_prefix
-        await ctx.send(f'Command prefix changed to: `{new_prefix}`')
+        bot.command_prefix = newPrefix
+        await ctx.send(f'Command prefix changed to: `{newPrefix}`')
     else:
         await ctx.send('Please provide a new prefix.')
 
@@ -63,14 +64,18 @@ async def startMinecraftServer(ctx):
     statusBashScript = os.path.join(CURRENT_FOLDER, 'scripts/mcStatus.sh')
     print(os.path.exists(statusBashScript))
     returnCode = subprocess.run(['/bin/bash', statusBashScript] + arguments).returncode
+    embed = discord.Embed(title="Server Status", color=0x00ff00)
     if returnCode == 0:
-        await ctx.send('Server already running.')
+        embed = discord.Embed(title='Server Status', description='Server already running.', color=0x00ff00)
+        await ctx.send(embed=embed)
     elif returnCode == 1:
-        await ctx.send('Starting Minecraft server.')
+        embed = discord.Embed(title='Server Status', description='Server starting.', color=0x00ff00)
+        await ctx.send(embed=embed)
         startBashScript = os.path.join(CURRENT_FOLDER, 'scripts/mcStart.sh')
         subprocess.Popen(['/bin/bash', startBashScript] + arguments)
     else:
-        await ctx.send('Status Error.')
+        embed = discord.Embed(title='Server Status', description='Status Error.', color=0x00ff00)
+        await ctx.send(embed=embed)
 
 
 @bot.command(name='stop-server', help='Stops the MC Server.')
@@ -81,13 +86,16 @@ async def stopMinecraftServer(ctx):
     statusBashScript = os.path.join(CURRENT_FOLDER, 'scripts/mcStatus.sh')
     returnCode = subprocess.run(['/bin/bash', statusBashScript] + arguments).returncode
     if returnCode == 0:
-        await ctx.send('Stopping Server.')
+        embed = discord.Embed(title='Server Status', description='Server shutting down.', color=0x00ff00)
+        await ctx.send(embed=embed)
         stopBashScript = os.path.join(CURRENT_FOLDER, 'scripts/mcStop.sh')
         subprocess.run([stopBashScript] + arguments)
     elif returnCode == 1:
-        await ctx.send('Server not running.')
+        embed = discord.Embed(title='Server Status', description='Server is not running.', color=0x00ff00)
+        await ctx.send(embed=embed)
     else:
-        await ctx.send('Status Error.')
+        embed = discord.Embed(title='Server Status', description='Status Error.', color=0x00ff00)
+        await ctx.send(embed=embed)
 
 
 @bot.command(name='reset-server', help='Resets the MC Server.')
@@ -98,13 +106,16 @@ async def resetMinecraftServer(ctx):
     statusBashScript = os.path.join(CURRENT_FOLDER, 'scripts/mcStatus.sh')
     returnCode = subprocess.run(['/bin/bash', statusBashScript] + arguments).returncode
     if returnCode == 0:
-        await ctx.send('Resetting Server.')
+        embed = discord.Embed(title='Server Status', description='Server Resetting.', color=0x00ff00)
+        await ctx.send(embed=embed)
         stopBashScript = os.path.join(CURRENT_FOLDER, 'scripts/mcStop.sh')
         subprocess.run([stopBashScript] + arguments)
     elif returnCode == 1:
-        await ctx.send('Server not running.')
+        embed = discord.Embed(title='Server Status', description='Server is not running.', color=0x00ff00)
+        await ctx.send(embed=embed)
     else:
-        await ctx.send('Status Error.')
+        embed = discord.Embed(title='Server Status', description='Status Error.', color=0x00ff00)
+        await ctx.send(embed=embed)
 
 
 @bot.command(name='status', help='Checks if the server is running.')
@@ -114,51 +125,58 @@ async def checkStatus(ctx):
     statusBashScript = os.path.join(CURRENT_FOLDER, 'scripts/mcStatus.sh')
     returnCode = subprocess.run(['/bin/bash', statusBashScript] + arguments).returncode
     if returnCode == 0:
-        await ctx.send('Server is running.')
+        embed = discord.Embed(title='Server Status', description='Server is running.', color=0x00ff00)
+        await ctx.send(embed=embed)
     elif returnCode == 1:
-        await ctx.send('Server is not running.')
+        embed = discord.Embed(title='Server Status', description='Server is not running.', color=0x00ff00)
+        await ctx.send(embed=embed)
     else:
-        await ctx.send('Status Error.')
+        embed = discord.Embed(title='Server Status', description='Status Error.', color=0x00ff00)
+        await ctx.send(embed=embed)
 
 
 @bot.command(name='ip', help='Gives the server\'s IP address.')
 async def giveServerIp(ctx):
-    embed = discord.Embed(title='Server IP', description=f'The server\'s IP is: {SERVER_IP}', color=0x00ff00)
+    embed = discord.Embed(title='Server IP Address', description=f'The server\'s IP is: {SERVER_IP}', color=0x00ff00)
     await ctx.send(embed=embed)
 
 
 @bot.command(name='seed', help='Gives the server\'s world seed.')
 async def giveWorldSeed(ctx):
+    worldSeed = None
     with open(os.path.join(SERVER_FOLDER, 'server.properties'), 'r') as file:
         for line in file.readlines():
             if line.startswith('level-seed='):
                 seedLine = line.replace('\n', '')
                 worldSeed = seedLine.split('=')[1]
-                chunkBaseLink = f'https://www.chunkbase.com/apps/seed-map#{worldSeed}'
-                embed = discord.Embed(title='World Seed', description=f'The server\'s world seed is: {worldSeed}', color=0x00ff00)
-                embed.add_field(name='ChunkBase Link', value=chunkBaseLink)
-                await ctx.send(embed=embed)
+    embed = discord.Embed(title='World Seed', description=f'The server\'s world seed is: {worldSeed}', color=0x00ff00)
+    if worldSeed is not None:
+        chunkBaseLink = f'https://www.chunkbase.com/apps/seed-map#{worldSeed}'
+        embed.add_field(name='ChunkBase Link', value=chunkBaseLink)
+    await ctx.send(embed=embed)
 
 
 @bot.command(name='online', help='Give the number of online players.')
 async def nbPlayersOnline(ctx):
-    print('online')
-    # Checking if server is running
     arguments = [SERVER_FOLDER, SERVER_FILE, FLASH_MEMORY]
     statusBashScript = os.path.join(CURRENT_FOLDER, 'scripts/mcStatus.sh')
     returnCode = subprocess.run(['/bin/bash', statusBashScript] + arguments).returncode
     if returnCode == 0:
         latestLogFilePath = os.path.join(SERVER_FOLDER, 'logs/latest.log')
         nbPlayers, _ = getPlayersOnlineFromLogs(latestLogFilePath)
+        max_nb_players = 0
         with open(os.path.join(SERVER_FOLDER, 'server.properties'), 'r') as file:
             for line in file.readlines():
                 if line.startswith('max-players='):
-                    nbPlayersMax = line.split('=')[1]
-        await ctx.send(f'Online Players: {nbPlayers}/{nbPlayersMax}')
+                    max_nb_players = line.split('=')[1]
+        embed = discord.Embed(title='Server IP', description=f'{nbPlayers}/{max_nb_players}', color=0x00ff00)
+        await ctx.send(embed=embed)
     elif returnCode == 1:
-        await ctx.send('Server is not running.')
+        embed = discord.Embed(title='Server Status', description='Server is not running.', color=0x00ff00)
+        await ctx.send(embed=embed)
     else:
-        await ctx.send('Status Error.')
+        embed = discord.Embed(title='Server Status', description='Status Error.', color=0x00ff00)
+        await ctx.send(embed=embed)
 
 
 ######################## FUNCTIONS ########################
