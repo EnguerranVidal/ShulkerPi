@@ -156,7 +156,7 @@ async def giveWorldSeed(ctx):
     await ctx.send(embed=embed)
 
 
-@bot.command(name='online', help='Give the number of online players.')
+@bot.command(name='online-players', help='Give the number of online players.')
 async def nbPlayersOnline(ctx):
     arguments = [SERVER_FOLDER, SERVER_FILE, FLASH_MEMORY]
     statusBashScript = os.path.join(CURRENT_FOLDER, 'scripts/mcStatus.sh')
@@ -169,13 +169,35 @@ async def nbPlayersOnline(ctx):
             for line in file.readlines():
                 if line.startswith('max-players='):
                     max_nb_players = line.split('=')[1]
-        embed = discord.Embed(title='Server IP', description=f'{nbPlayers}/{max_nb_players}', color=0x00ff00)
+        embed = discord.Embed(title='Player Count', description=f'{nbPlayers}/{max_nb_players}', color=0x00ff00)
         await ctx.send(embed=embed)
     elif returnCode == 1:
-        embed = discord.Embed(title='Server Status', description='Server is not running.', color=0x00ff00)
+        embed = discord.Embed(title='Player Count', description='Server is not running.', color=0x00ff00)
         await ctx.send(embed=embed)
     else:
-        embed = discord.Embed(title='Server Status', description='Status Error.', color=0x00ff00)
+        embed = discord.Embed(title='Player Count', description='Status Error.', color=0x00ff00)
+        await ctx.send(embed=embed)
+
+
+@bot.command(name='online-players-list', help='List the players currently online.')
+async def onlinePlayersList(ctx):
+    arguments = [SERVER_FOLDER, SERVER_FILE, FLASH_MEMORY]
+    statusBashScript = os.path.join(CURRENT_FOLDER, 'scripts/mcStatus.sh')
+    returnCode = subprocess.run(['/bin/bash', statusBashScript] + arguments).returncode
+    if returnCode == 0:
+        latestLogFilePath = os.path.join(SERVER_FOLDER, 'logs/latest.log')
+        _, playersOnline = getPlayersOnlineFromLogs(latestLogFilePath)
+        if playersOnline:
+            players_list = "\n".join(f"• {player}" for player in playersOnline)
+            embed = discord.Embed(title='Players Online', description=players_list, color=0x00ff00)
+        else:
+            embed = discord.Embed(title='Players Online', description='No players online.', color=0x00ff00)
+        await ctx.send(embed=embed)
+    elif returnCode == 1:
+        embed = discord.Embed(title='Players Online', description='Server is not running.', color=0x00ff00)
+        await ctx.send(embed=embed)
+    else:
+        embed = discord.Embed(title='Players Online', description='Status Error.', color=0x00ff00)
         await ctx.send(embed=embed)
 
 
