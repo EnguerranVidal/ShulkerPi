@@ -28,10 +28,7 @@ bot = commands.Bot(command_prefix=COMMAND_PREFIX, intents=intents)
 
 @bot.event
 async def on_ready():
-    guild = discord.utils.find(lambda g: g.name == GUILD, bot.guilds)
-    # print(f'{bot.user} is connected to {guild.name}(id: {guild.id})')
-    # print([member.name for member in guild.members])
-
+    pass
 
 ######################## COMMANDS ########################
 @bot.command(name='hello', help='Responds with a hello message')
