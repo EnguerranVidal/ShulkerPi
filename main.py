@@ -30,6 +30,7 @@ bot = commands.Bot(command_prefix=COMMAND_PREFIX, intents=intents)
 async def on_ready():
     pass
 
+
 ######################## COMMANDS ########################
 @bot.command(name='hello', help='Responds with a hello message')
 async def hello(ctx):
@@ -243,7 +244,7 @@ async def givePlayerStats(ctx):
         levelStatsFolderPath = os.path.join(SERVER_FOLDER, f'{levelName}/stats')
         playerStats = retrievePlayerStats(levelStatsFolderPath, mcUuids[userIds.index(ctx.author.id)])
         if playerStats is None:
-            await ctx.send(f'You have not yet joined the server')
+            await ctx.author.send(f'You have not yet joined the server')
         else:
             embed = discord.Embed(title=f"Stats for {playerStats['NAME']}", color=0x00ff00)
             embed.add_field(name='Deaths', value=playerStats['DEATHS'])
@@ -261,9 +262,59 @@ async def givePlayerStats(ctx):
             embed.add_field(name='Distance by Elytra', value=playerStats['ELYTRA_DISTANCE'])
             embed.add_field(name='Distance by Horse', value=playerStats['HORSE_DISTANCE'])
             embed.add_field(name='Distance by Minecart', value=playerStats['MINECART_DISTANCE'])
+            embed.add_field(name='Most Block Mined', value=playerStats['MOST_MINED'])
+            embed.add_field(name='Most Item Used', value=playerStats['MOST_USED'])
+            embed.add_field(name='Most Item Crafted', value=playerStats['MOST_CRAFTED'])
+            embed.add_field(name='Most Mob Killed', value=playerStats['MOST_KILLED'])
+            embed.add_field(name='Most Deaths To', value=playerStats['MOST_KILLED_BY'])
+            embed.add_field(name='Most Tool Broken', value=playerStats['MOST_BROKEN'])
             await ctx.author.send(embed=embed)
     else:
-        await ctx.send(f'You have not registered your MC username.')
+        ctx.author.send(f'You have not registered your MC username.')
+
+
+@bot.command(name='stats-admin', help='Gives a given player\'s stats.')
+@commands.has_permissions(administrator=True)
+async def givePlayerStats(ctx, username):
+    userIds, mcUuids = retrieveUuids()
+    usernames = [getUsernameFromUuid(uuid) for uuid in mcUuids]
+    if username in usernames:
+        with open(os.path.join(SERVER_FOLDER, 'server.properties'), 'r') as file:
+            for line in file.readlines():
+                if line.startswith('level-name='):
+                    levelLine = line.replace('\n', '')
+                    levelName = levelLine.split('=')[1]
+        levelStatsFolderPath = os.path.join(SERVER_FOLDER, f'{levelName}/stats')
+        playerStats = retrievePlayerStats(levelStatsFolderPath, mcUuids[usernames.index(username)])
+        if playerStats is None:
+            await ctx.author.send(f'This user have not yet joined the server')
+        else:
+            embed = discord.Embed(title=f"Stats for {playerStats['NAME']}", color=0x00ff00)
+            embed.add_field(name='Deaths', value=playerStats['DEATHS'])
+            embed.add_field(name='Mobs Killed', value=playerStats['MOB_KILLS'])
+            embed.add_field(name='Players Killed', value=playerStats['PLAYER_KILLS'])
+            embed.add_field(name='Damage Taken', value=playerStats['DAMAGE_TAKEN'])
+            embed.add_field(name='Damage Dealt', value=playerStats['DAMAGE_DEALT'])
+            embed.add_field(name='Total Play Time', value=playerStats['PLAY_TIME'])
+            embed.add_field(name='Total Time Opened', value=playerStats['WORLD_TIME'])
+            embed.add_field(name='Total Since Last Death', value=playerStats['LAST_DEATH'])
+            embed.add_field(name='Distance Walked', value=playerStats['WALK_DISTANCE'])
+            embed.add_field(name='Distance Swum', value=playerStats['SWIM_DISTANCE'])
+            embed.add_field(name='Distance Fallen', value=playerStats['FALL_DISTANCE'])
+            embed.add_field(name='Distance by Boat', value=playerStats['BOAT_DISTANCE'])
+            embed.add_field(name='Distance by Elytra', value=playerStats['ELYTRA_DISTANCE'])
+            embed.add_field(name='Distance by Horse', value=playerStats['HORSE_DISTANCE'])
+            embed.add_field(name='Distance by Minecart', value=playerStats['MINECART_DISTANCE'])
+
+            embed.add_field(name='Most Block Mined', value=playerStats['MOST_MINED'])
+            embed.add_field(name='Most Item Used', value=playerStats['MOST_USED'])
+            embed.add_field(name='Most Item Crafted', value=playerStats['MOST_CRAFTED'])
+            embed.add_field(name='Most Mob Killed', value=playerStats['MOST_KILLED'])
+            embed.add_field(name='Most Deaths To', value=playerStats['MOST_KILLED_BY'])
+            embed.add_field(name='Most Tool Broken', value=playerStats['MOST_BROKEN'])
+            await ctx.author.send(embed=embed)
+    else:
+        await ctx.author.send(f'Username not in the database')
 
 
 @bot.command(name='flush-usernames', help='Destroys all usernames.')
@@ -399,6 +450,7 @@ def retrievePlayerStats(levelStatsFolderPath, mcUuid):
                 playerInfo['MOST_CRAFTED'] = getMinecraftMost(playerStats['stats'].get('minecraft:crafted', None))
                 playerInfo['MOST_KILLED'] = getMinecraftMost(playerStats['stats'].get('minecraft:killed', None))
                 playerInfo['MOST_KILLED_BY'] = getMinecraftMost(playerStats['stats'].get('minecraft:killed_by', None))
+                playerInfo['MOST_BROKEN'] = getMinecraftMost(playerStats['stats'].get('minecraft:broken', None))
             return playerInfo
     return None
 
@@ -410,13 +462,13 @@ def retrieveUuids():
     usernamesFile = os.path.join(dataFolder, 'usernames.csv')
     if not os.path.exists(usernamesFile):
         with open(usernamesFile, 'w', newline='') as csvfile:
-            fieldnames = ['user_id', 'guild_id', 'mc_usernames']
+            fieldnames = ['user_id', 'guild_id', 'mc_uuid']
             writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
             writer.writeheader()
     with open(usernamesFile, 'r', newline='') as csvfile:
         reader = csv.DictReader(csvfile)
         rows = list(reader)
-    return [int(row['user_id']) for row in rows], [row['mc_uuid'] for row in rows]
+    return [int(row['user_id']) for row in rows[:-1]], [row['mc_uuid'] for row in rows[:-1]]
 
 
 def formatTimeDifference(seconds):
