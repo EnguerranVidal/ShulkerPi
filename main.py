@@ -1,18 +1,19 @@
 import csv
 import os
 import json
+
 import requests
 import subprocess
 import re
+import asyncio
 
 import discord
-from discord.ext import commands
+from discord.ext import commands, tasks
 from dotenv import load_dotenv
 
 CURRENT_FOLDER = os.path.dirname(os.path.realpath(__file__))
 load_dotenv(os.path.join(CURRENT_FOLDER, '.env'))
 TOKEN = os.getenv('DISCORD_TOKEN')
-GUILD = os.getenv('DISCORD_GUILD')
 SERVER_IP = os.getenv('SERVER_IP')
 SERVER_FOLDER = os.getenv('SERVER_FOLDER')
 COMMAND_PREFIX = os.getenv('COMMAND_PREFIX')
@@ -28,7 +29,16 @@ bot = commands.Bot(command_prefix=COMMAND_PREFIX, intents=intents)
 
 @bot.event
 async def on_ready():
-    pass
+    updateStatus.start()
+
+
+@tasks.loop(minutes=5)
+async def updateStatus():
+    serverData = getServerStatus()
+    isOnline = True if serverData is not None and serverData.get('online', False) else False
+    serverStatusPresence = 'SERVER 🟢' if isOnline else 'SERVER 🔴'
+    activity = discord.Game(name=serverStatusPresence)
+    await bot.change_presence(activity=activity)
 
 
 ######################## COMMANDS ########################
@@ -117,6 +127,7 @@ async def resetMinecraftServer(ctx):
 
 
 @bot.command(name='status', help='Checks if the server is running.')
+@commands.has_permissions(administrator=True)
 async def checkStatus(ctx):
     # Checking if server is running
     arguments = [SERVER_FOLDER, SERVER_FILE, FLASH_MEMORY]
@@ -156,20 +167,16 @@ async def giveWorldSeed(ctx):
 
 @bot.command(name='online', help='Give the number of online players.')
 async def nbOnline(ctx):
-    arguments = [SERVER_FOLDER, SERVER_FILE, FLASH_MEMORY]
-    statusBashScript = os.path.join(CURRENT_FOLDER, 'scripts/mcStatus.sh')
-    returnCode = subprocess.run(['/bin/bash', statusBashScript] + arguments).returncode
-    if returnCode == 0:
-        latestLogFilePath = os.path.join(SERVER_FOLDER, 'logs/latest.log')
-        nbPlayers, _ = getPlayersOnlineFromLogs(latestLogFilePath)
-        maxNbPlayers = 0
+    serverData = getServerStatus()
+    if serverData is not None and serverData['online']:
+        nbPlayers = serverData['players']['online']
         with open(os.path.join(SERVER_FOLDER, 'server.properties'), 'r') as file:
             for line in file.readlines():
                 if line.startswith('max-players='):
                     maxNbPlayers = line.split('=')[1]
         embed = discord.Embed(title='Player Count', description=f'{nbPlayers}/{maxNbPlayers}', color=0x00ff00)
         await ctx.send(embed=embed)
-    elif returnCode == 1:
+    elif serverData is not None and not serverData['online']:
         embed = discord.Embed(title='Player Count', description='Server is not running.', color=0x00ff00)
         await ctx.send(embed=embed)
     else:
@@ -179,19 +186,16 @@ async def nbOnline(ctx):
 
 @bot.command(name='online-players', help='List the players currently online.')
 async def onlinePlayers(ctx):
-    arguments = [SERVER_FOLDER, SERVER_FILE, FLASH_MEMORY]
-    statusBashScript = os.path.join(CURRENT_FOLDER, 'scripts/mcStatus.sh')
-    returnCode = subprocess.run(['/bin/bash', statusBashScript] + arguments).returncode
-    if returnCode == 0:
-        latestLogFilePath = os.path.join(SERVER_FOLDER, 'logs/latest.log')
-        _, playersOnline = getPlayersOnlineFromLogs(latestLogFilePath)
+    serverData = getServerStatus()
+    if serverData is not None and serverData['online']:
+        playersOnline = [player['name_clean'] for player in serverData['players']['list']]
         if playersOnline:
             playersList = "\n".join(f"• {player}" for player in playersOnline)
             embed = discord.Embed(title='Players Online', description=playersList, color=0x00ff00)
         else:
             embed = discord.Embed(title='Players Online', description='No players online.', color=0x00ff00)
         await ctx.send(embed=embed)
-    elif returnCode == 1:
+    elif serverData is not None and not serverData['online']:
         embed = discord.Embed(title='Players Online', description='Server is not running.', color=0x00ff00)
         await ctx.send(embed=embed)
     else:
@@ -398,6 +402,17 @@ def getUuidFromUsername(currentUsername):
         return None
 
 
+def getServerStatus():
+    apiUrl = f'https://api.mcstatus.io/v2/status/java/{SERVER_IP}'
+    try:
+        response = requests.get(apiUrl)
+        data = response.json()
+        return data
+    except Exception as e:
+        print(f"Error checking server status: {e}")
+        return None
+
+
 def getMinecraftMost(minecraftDict):
     if minecraftDict is not None:
         mostKey = max(minecraftDict, key=minecraftDict.get).split(':')[1]
@@ -426,9 +441,9 @@ def retrievePlayerStats(levelStatsFolderPath, mcUuid):
                 playTime = playerStats['stats']['minecraft:custom'].get('minecraft:play_time', 0)
                 lastDeath = playerStats['stats']['minecraft:custom'].get('minecraft:time_since_death', 0)
                 worldTime = playerStats['stats']['minecraft:custom'].get('minecraft:total_world_time', 0)
-                playerInfo['PLAY_TIME'] = formatTimeDifference(int(playTime) / 20)
-                playerInfo['WORLD_TIME'] = formatTimeDifference(int(worldTime) / 20)
-                playerInfo['LAST_DEATH'] = formatTimeDifference(int(lastDeath) / 20)
+                playerInfo['PLAY_TIME'] = formatTimeDuration(int(playTime) / 20)
+                playerInfo['WORLD_TIME'] = formatTimeDuration(int(worldTime) / 20)
+                playerInfo['LAST_DEATH'] = formatTimeDuration(int(lastDeath) / 20)
                 # MOVEMENT STATISTICS
                 walkDistance = playerStats['stats']['minecraft:custom'].get('minecraft:walk_one_cm', 0)
                 swimDistance = playerStats['stats']['minecraft:custom'].get('minecraft:swim_one_cm', 0)
@@ -471,7 +486,7 @@ def retrieveUuids():
     return [int(row['user_id']) for row in rows[:-1]], [row['mc_uuid'] for row in rows[:-1]]
 
 
-def formatTimeDifference(seconds):
+def formatTimeDuration(seconds):
     years, remainder = divmod(seconds, 31536000)
     months, remainder = divmod(remainder, 2592000)
     days, remainder = divmod(remainder, 86400)
@@ -494,8 +509,7 @@ def formatTimeDifference(seconds):
 
 def formatDistance(meters):
     if meters >= 1000:
-        distance_kilometers = meters / 1000
-        return f"{distance_kilometers:.2f} km"
+        return f"{meters / 1000 :.2f} km"
     else:
         return f"{meters} m"
 

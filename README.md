@@ -32,10 +32,10 @@ git clone https://github.com/EnguerranVidal/ShulkerPi.git
 ```
 cd ShulkerPi
 ```
-3. Creating PyEnv Environment
+3. Creating Conda Environment
 ```
-pyenv virtualenv 3.10 discordbot
-pyenv local discordbot
+conda create --name discordbot python=3.10
+conda activate discordbot
 ```
 4. Installing ShulkerPi Requirements
 ```
