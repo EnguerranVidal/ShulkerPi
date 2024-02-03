@@ -30,6 +30,7 @@ bot = commands.Bot(command_prefix=COMMAND_PREFIX, intents=intents)
 @bot.event
 async def on_ready():
     updateStatus.start()
+    await updateStatus()
 
 
 @tasks.loop(minutes=5)
@@ -47,7 +48,7 @@ async def hello(ctx):
     await ctx.send('Hello!')
 
 
-@bot.command(name='change-prefix', help='Change the command prefix')
+@bot.command(name='change-prefix', help='Changes the command prefix')
 @commands.has_permissions(administrator=True)
 async def changePrefix(ctx, newPrefix):
     if newPrefix:
@@ -129,7 +130,6 @@ async def resetMinecraftServer(ctx):
 @bot.command(name='status', help='Checks if the server is running.')
 @commands.has_permissions(administrator=True)
 async def checkStatus(ctx):
-    # Checking if server is running
     arguments = [SERVER_FOLDER, SERVER_FILE, FLASH_MEMORY]
     statusBashScript = os.path.join(CURRENT_FOLDER, 'scripts/mcStatus.sh')
     returnCode = subprocess.run(['/bin/bash', statusBashScript] + arguments).returncode
@@ -165,7 +165,7 @@ async def giveWorldSeed(ctx):
     await ctx.send(embed=embed)
 
 
-@bot.command(name='online', help='Give the number of online players.')
+@bot.command(name='online', help='Gives the number of online players.')
 async def nbOnline(ctx):
     serverData = getServerStatus()
     if serverData is not None and serverData['online']:
@@ -184,7 +184,7 @@ async def nbOnline(ctx):
         await ctx.send(embed=embed)
 
 
-@bot.command(name='online-players', help='List the players currently online.')
+@bot.command(name='online-players', help='Lists the players currently online.')
 async def onlinePlayers(ctx):
     serverData = getServerStatus()
     if serverData is not None and serverData['online']:
@@ -223,6 +223,7 @@ async def changeUsername(ctx, userName):
         reader = csv.DictReader(csvfile)
         rows = list(reader)
         userExists = any(row['user_id'] == str(senderId) for row in rows)
+        # TODO : Add security so no one can get another user's username (also create a function to remove a certain username from database)
     with open(usernamesFile, 'w', newline='') as csvfile:
         fieldnames = ['user_id', 'guild_id', 'mc_uuid']
         writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
