@@ -8,6 +8,7 @@ import re
 import asyncio
 
 import discord
+from mcrcon import MCRcon
 from discord.ext import commands, tasks
 from dotenv import load_dotenv
 
@@ -344,6 +345,86 @@ async def flushUsernames(ctx):
         await ctx.send(f'No usernames in database.')
 
 
+@bot.command(name='whitelist', help='Adds/Removes User to/from Whitelist.')
+@commands.has_permissions(administrator=True)
+async def whitelist(ctx, action: str, player_name: str):
+    valid_actions = ['add', 'remove']
+    if action.lower() not in valid_actions:
+        await ctx.send(f'Invalid action. Use one of: {", ".join(valid_actions)}')
+        return
+    arguments = [SERVER_FOLDER, SERVER_FILE, FLASH_MEMORY]
+    statusBashScript = os.path.join(CURRENT_FOLDER, 'scripts/mcStatus.sh')
+    returnCode = subprocess.run(['/bin/bash', statusBashScript] + arguments).returncode
+    if returnCode != 0:
+        await ctx.send('The Minecraft server is not online. Cannot perform whitelist operation.')
+        return
+    port, password = retrieveRcon()
+    await ctx.send(f'{action.capitalize()}ing {player_name} from the whitelist...')
+    try:
+        with MCRcon(host='localhost', password=password, port=int(port)) as mcr:
+            resp = mcr.command(f"whitelist {action} {player_name}")
+            await ctx.send(resp)
+    except subprocess.CalledProcessError:
+        await ctx.send(f'Failed to {action} the player.')
+
+
+@bot.command(name='ban', help='Bans User from Server.')
+@commands.has_permissions(administrator=True)
+async def ban(ctx, player_name: str, reason: str = None):
+    arguments = [SERVER_FOLDER, SERVER_FILE, FLASH_MEMORY]
+    statusBashScript = os.path.join(CURRENT_FOLDER, 'scripts/mcStatus.sh')
+    returnCode = subprocess.run(['/bin/bash', statusBashScript] + arguments).returncode
+    if returnCode != 0:
+        await ctx.send('The Minecraft server is not online. Cannot perform ban.')
+        return
+    port, password = retrieveRcon()
+    try:
+        with MCRcon(host='localhost', password=password, port=int(port)) as mcr:
+            if reason is None:
+                resp = mcr.command(f"ban {player_name}")
+            else:
+                resp = mcr.command(f"ban {player_name} {reason}")
+            await ctx.send(resp)
+    except subprocess.CalledProcessError:
+        await ctx.send(f'Failed to ban the player.')
+
+
+@bot.command(name='pardon', help='Unbans User from Server.')
+@commands.has_permissions(administrator=True)
+async def pardon(ctx, player_name: str):
+    arguments = [SERVER_FOLDER, SERVER_FILE, FLASH_MEMORY]
+    statusBashScript = os.path.join(CURRENT_FOLDER, 'scripts/mcStatus.sh')
+    returnCode = subprocess.run(['/bin/bash', statusBashScript] + arguments).returncode
+    if returnCode != 0:
+        await ctx.send('The Minecraft server is not online. Cannot perform pardon.')
+        return
+    port, password = retrieveRcon()
+    try:
+        with MCRcon(host='localhost', password=password, port=int(port)) as mcr:
+            resp = mcr.command(f"pardon {player_name}")
+            await ctx.send(resp)
+    except subprocess.CalledProcessError:
+        await ctx.send(f'Failed to ban the player.')
+
+
+@bot.command(name='message', help='Displays a Message in the Server.')
+@commands.has_permissions(administrator=True)
+async def say(ctx, message: str):
+    arguments = [SERVER_FOLDER, SERVER_FILE, FLASH_MEMORY]
+    statusBashScript = os.path.join(CURRENT_FOLDER, 'scripts/mcStatus.sh')
+    returnCode = subprocess.run(['/bin/bash', statusBashScript] + arguments).returncode
+    if returnCode != 0:
+        await ctx.send('The Minecraft server is not online.')
+        return
+    port, password = retrieveRcon()
+    try:
+        with MCRcon(host='localhost', password=password, port=int(port)) as mcr:
+            resp = mcr.command(f"say {message}")
+            await ctx.send(resp)
+    except subprocess.CalledProcessError:
+        await ctx.send(f'Failed to display message.')
+
+
 ######################## FUNCTIONS ########################
 def getPlayersOnlineFromLogs(logFilePath):
     try:
@@ -485,6 +566,18 @@ def retrieveUuids():
         reader = csv.DictReader(csvfile)
         rows = list(reader)
     return [int(row['user_id']) for row in rows[:-1]], [row['mc_uuid'] for row in rows[:-1]]
+
+
+def retrieveRcon():
+    with open(os.path.join(SERVER_FOLDER, 'server.properties'), 'r') as file:
+        for line in file.readlines():
+            if line.startswith('rcon.port='):
+                portLine = line.replace('\n', '')
+                port = portLine.split('=')[1]
+            if line.startswith('rcon.password='):
+                passwordLine = line.replace('\n', '')
+                password = passwordLine.split('=')[1]
+    return port, password
 
 
 def formatTimeDuration(seconds):
