@@ -2,6 +2,7 @@ import os
 import json
 import discord
 import asyncio
+import subprocess
 from discord.ext import commands, tasks
 from dotenv import load_dotenv
 
@@ -105,6 +106,89 @@ class ShulkerCommands(commands.Cog):
             await ctx.send(embed=embed)
         else:
             embed = discord.Embed(title='Player Count', description='Status Error.', color=0xff0000)
+            await ctx.send(embed=embed)
+
+    @commands.command(name='request-server', help='Requests the owner to start the server.')
+    @commands.check(lambda ctx: ctx.author.id == ctx.cog.owner or ctx.author.id in ctx.cog.users)
+    async def request_server(self, ctx):
+        requester = ctx.author
+        if requester.id == self.owner:
+            await ctx.send("🔧 You're the owner—you can start the server yourself.")
+            return
+        try:
+            owner_user = await self.bot.fetch_user(self.owner)
+            if not owner_user:
+                await ctx.send("⚠️ Could not find the bot owner.")
+                return
+            dm_embed = discord.Embed(title="🔔 Server Start Request", description=f"{requester.mention} (`{requester.name}#{requester.discriminator}`) is requesting to start the Minecraft server.", color=0xffcc00)
+            dm_embed.set_footer(text=f"User ID: {requester.id}")
+            await owner_user.send(embed=dm_embed)
+            await ctx.send("📩 Your request has been sent to the owner.")
+        except discord.Forbidden:
+            await ctx.send("⚠️ I couldn't DM the owner. They might have DMs disabled.")
+        except Exception as e:
+            await ctx.send(f"❌ An error occurred: {e}")
+
+    @commands.command(name='start-server', help='Starts the MC Server.', hidden=True)
+    @commands.check(lambda ctx: ctx.author.id == ctx.cog.owner)
+    async def startServer(self, ctx):
+        arguments = [self.serverFolder, self.serverFile, self.flashMemory]
+        statusBashScript = os.path.join(self.botFolder, 'scripts/mcStatus.sh')
+        try:
+            returnCode = subprocess.run(['/bin/bash', statusBashScript] + arguments).returncode
+            if returnCode == 0:
+                embed = discord.Embed(title='Server Status', description='🟢 Server is already running.', color=0x00ff00)
+            elif returnCode == 1:
+                embed = discord.Embed(title='Server Status', description='🟡 Starting server...', color=0xffcc00)
+                startBashScript = os.path.join(self.botFolder, 'scripts/mcStart.sh')
+                subprocess.Popen(['/bin/bash', startBashScript] + arguments)
+            else:
+                embed = discord.Embed(title='Server Status', description='🔴 Could not determine server status.', color=0xff0000)
+        except Exception as e:
+            embed = discord.Embed(title='Server Status', description=f'❌ Error: {e}', color=0xff0000)
+        await ctx.send(embed=embed)
+
+    @commands.command(name='stop-server', help='Stops the MC Server.', hidden=True)
+    @commands.check(lambda ctx: ctx.author.id == ctx.cog.owner)
+    async def stop_server(self, ctx):
+        arguments = [self.serverFolder, self.serverFile, self.flashMemory]
+        statusBashScript = os.path.join(self.botFolder, 'scripts/mcStatus.sh')
+        try:
+            returnCode = subprocess.run(['/bin/bash', statusBashScript] + arguments).returncode
+            if returnCode == 0:
+                embed = discord.Embed(title='Server Status', description='🔻 Server shutting down...', color=0xffcc00)
+                await ctx.send(embed=embed)
+
+                stopBashScript = os.path.join(self.botFolder, 'scripts/mcStop.sh')
+                subprocess.run(['/bin/bash', stopBashScript] + arguments)
+            elif returnCode == 1:
+                embed = discord.Embed(title='Server Status', description='🛑 Server is not running.', color=0xff0000)
+                await ctx.send(embed=embed)
+            else:
+                embed = discord.Embed(title='Server Status', description='❓ Unknown status returned by status check.',
+                                      color=0xff0000)
+                await ctx.send(embed=embed)
+        except Exception as e:
+            embed = discord.Embed(title='Server Error', description=f'❌ Exception occurred: {e}', color=0xff0000)
+            await ctx.send(embed=embed)
+
+    @commands.command(name='status', help='Checks if the server is running.', hidden=True)
+    @commands.check(lambda ctx: ctx.cog.isBotOwnerOrAllowed().predicate(ctx))
+    async def check_status(self, ctx):
+        arguments = [self.serverFolder, self.serverFile, self.flashMemory]
+        status_script = os.path.join(self.botFolder, 'scripts/mcStatus.sh')
+        try:
+            return_code = subprocess.run(['/bin/bash', status_script] + arguments).returncode
+            if return_code == 0:
+                description = '🟢 Server is running.'
+            elif return_code == 1:
+                description = '🔴 Server is not running.'
+            else:
+                description = '❓ Unknown status (check the script or paths).'
+            embed = discord.Embed(title='Server Status', description=description, color=0x00ff00)
+            await ctx.send(embed=embed)
+        except Exception as e:
+            embed = discord.Embed(title='Server Status', description=f'❌ Error checking status: {e}', color=0xff0000)
             await ctx.send(embed=embed)
 
     @commands.command(name='change-prefix', help='Changes the command prefix', hidden=True)
