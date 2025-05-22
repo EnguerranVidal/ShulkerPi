@@ -1,12 +1,11 @@
 import requests
 
-
-def getServerStatus(serverIp):
-    apiUrl = f'https://api.mcstatus.io/v2/status/java/{serverIp}'
-    try:
-        response = requests.get(apiUrl)
-        data = response.json()
-        return data
-    except Exception as e:
-        print(f"Error checking server status: {e}")
-        return None
+def editEnvFile(envPath, lineName, content):
+    with open(envPath, 'r') as envFile:
+        lines = envFile.readlines()
+    with open(envPath, 'w') as envFile:
+        for line in lines:
+            if line.startswith(f'{lineName}='):
+                envFile.write(f"{lineName}={content}\n")
+            else:
+                envFile.write(line)

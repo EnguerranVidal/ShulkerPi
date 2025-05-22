@@ -5,6 +5,7 @@ import asyncio
 import subprocess
 from discord.ext import commands, tasks
 from dotenv import load_dotenv
+from mcstatus import JavaServer
 
 from utilities import *
 
@@ -14,6 +15,7 @@ class ShulkerCommands(commands.Cog):
         self.bot = shulkerBot
         self.config = botConfig
         self.botFolder = botFolder
+        self.serverIsRunning = False
         self.token = botConfig['DISCORD_TOKEN']
         self.owner = botConfig['BOT_OWNER']
         self.users = [int(uid.strip()) for uid in os.getenv('ALLOWED_USERS', '').split(',') if uid.strip().isdigit()]
@@ -48,12 +50,14 @@ class ShulkerCommands(commands.Cog):
             return ctx.author.id == self.owner
         return commands.check(predicate)
 
-    @tasks.loop(minutes=5)
+    @tasks.loop(seconds=10)
     async def updateStatus(self):
-        serverData = getServerStatus(self.serverIp)
-        isOnline = serverData is not None and serverData.get('online', False)
-        serverStatusPresence = 'SERVER 🟢' if isOnline else 'SERVER 🔴'
-        activity = discord.Game(name=serverStatusPresence)
+        try:
+            server = JavaServer.lookup(self.serverIp)
+            _ = await server.async_status()
+            activity = discord.Game(name='SERVER 🟢')
+        except Exception:
+            activity = discord.Game(name='SERVER 🔴')
         await self.bot.change_presence(activity=activity)
 
     @commands.command(name='ip', help="Gives the server's IP address.")
@@ -83,34 +87,30 @@ class ShulkerCommands(commands.Cog):
         else:
             await ctx.send("⚠️ Could not find the world seed in the server properties.")
 
-    @commands.command(name='online', help='Gives the number of online players.')
-    async def online(self, ctx):
-        serverData = getServerStatus(self.serverIp)
-        if serverData is not None and serverData.get('online', False):
-            nbPlayers = serverData['players']['online']
-            maxNbPlayers = None
-            properties_path = os.path.join(self.serverFolder, 'server.properties')
-            try:
-                with open(properties_path, 'r') as file:
-                    for line in file:
-                        if line.startswith('max-players='):
-                            maxNbPlayers = line.strip().split('=', 1)[1]
-                            break
-            except FileNotFoundError:
-                await ctx.send(f"⚠️ server.properties file not found in `{self.serverFolder}`.")
-                return
-            embed = discord.Embed(title='Player Count', description=f'{nbPlayers}/{maxNbPlayers}', color=0x00ff00)
+    @commands.command(name='info', help="Displays server MOTD, player count, and latency.")
+    async def info(self, ctx):
+        try:
+            server = JavaServer.lookup(self.serverIp)
+            status = server.status()
+            motd = status.description.strip() if isinstance(status.description, str) else status.description.get("text", "Unknown MOTD")
+            online = status.players.online
+            max_players = status.players.max
+            latency = round(status.latency)
+            if latency <= 100:
+                latency_display = f"🟢 **{latency} ms**"
+            elif latency <= 250:
+                latency_display = f"🟡 **{latency} ms**"
+            else:
+                latency_display = f"🔴 **{latency} ms**"
+            embed = discord.Embed(title="🖥️ Minecraft Server Info", description=f"**{motd}** | **{online}/{max_players}** | {latency_display}", color=0x00ff00)
             await ctx.send(embed=embed)
-        elif serverData is not None and not serverData.get('online', False):
-            embed = discord.Embed(title='Player Count', description='Server is not running.', color=0xff0000)
-            await ctx.send(embed=embed)
-        else:
-            embed = discord.Embed(title='Player Count', description='Status Error.', color=0xff0000)
-            await ctx.send(embed=embed)
+        except Exception as e:
+            error_embed = discord.Embed(title="🖥️ Minecraft Server Info", description="❌ Server Unreachable", color=0xff0000)
+            await ctx.send(embed=error_embed)
 
     @commands.command(name='request-server', help='Requests the owner to start the server.')
     @commands.check(lambda ctx: ctx.author.id == ctx.cog.owner or ctx.author.id in ctx.cog.users)
-    async def request_server(self, ctx):
+    async def requestServer(self, ctx):
         requester = ctx.author
         if requester.id == self.owner:
             await ctx.send("🔧 You're the owner—you can start the server yourself.")
@@ -172,24 +172,6 @@ class ShulkerCommands(commands.Cog):
             embed = discord.Embed(title='Server Error', description=f'❌ Exception occurred: {e}', color=0xff0000)
             await ctx.send(embed=embed)
 
-    @commands.command(name='status', help='Checks if the server is running.', hidden=True)
-    @commands.check(lambda ctx: ctx.cog.isBotOwnerOrAllowed().predicate(ctx))
-    async def check_status(self, ctx):
-        arguments = [self.serverFolder, self.serverFile, self.flashMemory]
-        status_script = os.path.join(self.botFolder, 'scripts/mcStatus.sh')
-        try:
-            return_code = subprocess.run(['/bin/bash', status_script] + arguments).returncode
-            if return_code == 0:
-                description = '🟢 Server is running.'
-            elif return_code == 1:
-                description = '🔴 Server is not running.'
-            else:
-                description = '❓ Unknown status (check the script or paths).'
-            embed = discord.Embed(title='Server Status', description=description, color=0x00ff00)
-            await ctx.send(embed=embed)
-        except Exception as e:
-            embed = discord.Embed(title='Server Status', description=f'❌ Error checking status: {e}', color=0xff0000)
-            await ctx.send(embed=embed)
 
     @commands.command(name='change-prefix', help='Changes the command prefix', hidden=True)
     @commands.check(lambda ctx: ctx.author.id == ctx.cog.owner)
@@ -211,9 +193,9 @@ class ShulkerCommands(commands.Cog):
         self.bot.command_prefix = newPrefix
         await ctx.send(f'✅ Command prefix changed to: `{newPrefix}`')
 
-    @commands.command(name='adduser', help='Add a user to allowed users (owner only)', hidden=True)
+    @commands.command(name='add-user', help='Add a user to allowed users (owner only)', hidden=True)
     @commands.check(lambda ctx: ctx.author.id == ctx.cog.owner)
-    async def adduser(self, ctx, user: discord.User = None):
+    async def addUser(self, ctx, user: discord.User = None):
         if user is None:
             await ctx.send("⚠️ Please mention a user or provide a user ID.")
             return
@@ -223,21 +205,6 @@ class ShulkerCommands(commands.Cog):
         if userIdString in allowedUsersList:
             await ctx.send(f"ℹ️ User {user} is already in the allowed users list.")
             return
-        # ADDED USER TO ALLOWED USERS LIST
-        allowedUsersList.append(userIdString)
-        self.config['ALLOWED_USERS'] = ','.join(allowedUsersList)
-        self.users.append(user.id)
-        # UPDATING ENV FILE
-        envPath = os.path.join(self.botFolder, '.env')
-        with open(envPath, 'r') as env_file:
-            lines = env_file.readlines()
-        with open(envPath, 'w') as env_file:
-            for line in lines:
-                if line.startswith('ALLOWED_USERS='):
-                    env_file.write(f"ALLOWED_USERS={self.config['ALLOWED_USERS']}\n")
-                else:
-                    env_file.write(line)
-        load_dotenv(dotenv_path=envPath)
         # SEND DM TO NEW USER
         try:
             await user.send(
@@ -248,6 +215,15 @@ class ShulkerCommands(commands.Cog):
             await ctx.send(f"✅ User {user} added and notified via DM.")
         except Exception as e:
             await ctx.send(f"⚠️ Could not send DM to {user}. They might have DMs disabled.\nError: {e}")
+        finally:
+            # ADDED USER TO ALLOWED USERS LIST
+            allowedUsersList.append(userIdString)
+            self.config['ALLOWED_USERS'] = ','.join(allowedUsersList)
+            self.users.append(user.id)
+            # UPDATING ENV FILE
+            envPath = os.path.join(self.botFolder, '.env')
+            editEnvFile(envPath, 'ALLOWED_USERS', self.config['ALLOWED_USERS'])
+            load_dotenv(dotenv_path=envPath)
 
     @commands.command(name='help')
     async def customHelp(self, ctx):
