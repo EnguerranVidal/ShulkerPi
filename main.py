@@ -3,6 +3,8 @@ import json
 import discord
 import asyncio
 import subprocess
+
+import requests
 from discord.ext import commands, tasks
 from dotenv import load_dotenv
 from mcstatus import JavaServer
@@ -12,6 +14,9 @@ from utilities import *
 
 class ShulkerCommands(commands.Cog):
     def __init__(self, shulkerBot, botConfig, botFolder):
+        self.colors = {'green': 0x00ff00, 'yellow': 0xffcc00, 'red': 0xff0000}
+        self.usernameCsvPath = os.path.join(botFolder, 'usernames.csv')
+        self.usernamesDataframe = None
         self.bot = shulkerBot
         self.config = botConfig
         self.botFolder = botFolder
@@ -24,13 +29,16 @@ class ShulkerCommands(commands.Cog):
         self.serverFile = botConfig['SERVER_FILE']
         self.flashMemory = botConfig['FLASH_MEMORY']
 
-    @commands.command()
+    @commands.command(name='hello', help="Greets you back.")
+    @commands.check(lambda ctx: ctx.author.id == ctx.cog.owner or ctx.author.id in ctx.cog.users)
     async def hello(self, ctx):
         await ctx.send(f"Hello, {ctx.author.name}!")
 
     @commands.Cog.listener()
     async def on_ready(self):
         print(f'Bot is ready. Logged in as {self.bot.user}')
+        initializeUsernameCsv(self.usernameCsvPath)
+        self.usernamesDataframe = readUsernamesCsv(self.usernameCsvPath)
         self.updateStatus.start()
         await self.updateStatus()
         try:
@@ -39,16 +47,6 @@ class ShulkerCommands(commands.Cog):
                 await ownerUser.send(f"✅ **{self.bot.user.name}** is now online and ready.")
         except Exception as e:
             print(f"⚠️ Failed to send DM to owner: {e}")
-
-    def isBotOwnerOrAllowed(self):
-        def predicate(ctx):
-            return ctx.author.id == self.owner or ctx.author.id in self.users
-        return commands.check(predicate)
-
-    def isBotOwner(self):
-        def predicate(ctx):
-            return ctx.author.id == self.owner
-        return commands.check(predicate)
 
     @tasks.loop(seconds=10)
     async def updateStatus(self):
@@ -61,11 +59,13 @@ class ShulkerCommands(commands.Cog):
         await self.bot.change_presence(activity=activity)
 
     @commands.command(name='ip', help="Gives the server's IP address.")
+    @commands.check(lambda ctx: ctx.author.id == ctx.cog.owner or ctx.author.id in ctx.cog.users)
     async def ip(self, ctx):
-        embed = discord.Embed(title='Server IP Address',  description=f'The server\'s IP is: `{self.serverIp}`', color=0x00ff00)
+        embed = discord.Embed(title='Server IP Address',  description=f'The server\'s IP is: `{self.serverIp}`', color=self.colors['green'])
         await ctx.send(embed=embed)
 
     @commands.command(name='seed', help="Gives the server's world seed.")
+    @commands.check(lambda ctx: ctx.author.id == ctx.cog.owner or ctx.author.id in ctx.cog.users)
     async def seed(self, ctx):
         worldSeed = None
         propertiesPath = os.path.join(self.serverFolder, 'server.properties')
@@ -80,14 +80,15 @@ class ShulkerCommands(commands.Cog):
             await ctx.send(f"⚠️ server.properties file not found in `{self.serverFolder}`.")
             return
         if worldSeed:
-            embed = discord.Embed(title='World Seed', description=f"The server's world seed is: `{worldSeed}`", color=0x00ff00)
+            embed = discord.Embed(title='World Seed', description=f"The server's world seed is: `{worldSeed}`", color=self.colors['green'])
             chunkBaseLink = f'https://www.chunkbase.com/apps/seed-map#{worldSeed}'
             embed.add_field(name='ChunkBase Link', value=chunkBaseLink)
             await ctx.send(embed=embed)
         else:
             await ctx.send("⚠️ Could not find the world seed in the server properties.")
 
-    @commands.command(name='info', help="Displays server MOTD, player count, and latency.")
+    @commands.command(name='info', aliases=['status'], help="Displays server MOTD, player count, and latency.")
+    @commands.check(lambda ctx: ctx.author.id == ctx.cog.owner or ctx.author.id in ctx.cog.users)
     async def info(self, ctx):
         try:
             server = JavaServer.lookup(self.serverIp)
@@ -102,10 +103,10 @@ class ShulkerCommands(commands.Cog):
                 latency_display = f"🟡 **{latency} ms**"
             else:
                 latency_display = f"🔴 **{latency} ms**"
-            embed = discord.Embed(title="🖥️ Minecraft Server Info", description=f"**{motd}** | **{online}/{max_players}** | {latency_display}", color=0x00ff00)
+            embed = discord.Embed(title="🖥️ Minecraft Server Info", description=f"**{motd}** | **{online}/{max_players}** | {latency_display}", color=self.colors['green'])
             await ctx.send(embed=embed)
         except Exception as e:
-            error_embed = discord.Embed(title="🖥️ Minecraft Server Info", description="❌ Server Unreachable", color=0xff0000)
+            error_embed = discord.Embed(title="🖥️ Minecraft Server Info", description="❌ Server Unreachable", color=self.colors['red'])
             await ctx.send(embed=error_embed)
 
     @commands.command(name='request-server', help='Requests the owner to start the server.')
@@ -129,51 +130,41 @@ class ShulkerCommands(commands.Cog):
         except Exception as e:
             await ctx.send(f"❌ An error occurred: {e}")
 
-    @commands.command(name='start-server', help='Starts the MC Server.', hidden=True)
+    @commands.command(name='start-server', aliases=['start'], help='[OWNER ONLY] Starts the MC Server.', hidden=True)
     @commands.check(lambda ctx: ctx.author.id == ctx.cog.owner)
     async def startServer(self, ctx):
         arguments = [self.serverFolder, self.serverFile, self.flashMemory]
-        statusBashScript = os.path.join(self.botFolder, 'scripts/mcStatus.sh')
+
         try:
-            returnCode = subprocess.run(['/bin/bash', statusBashScript] + arguments).returncode
-            if returnCode == 0:
-                embed = discord.Embed(title='Server Status', description='🟢 Server is already running.', color=0x00ff00)
-            elif returnCode == 1:
-                embed = discord.Embed(title='Server Status', description='🟡 Starting server...', color=0xffcc00)
+            if await isServerOnline(self.serverIp):
+                embed = discord.Embed(title='Server Status', description='🟢 Server is already running.', color=self.colors['green'])
+            else:
+                embed = discord.Embed(title='Server Status', description='🟡 Server is offline. Starting server...', color=self.colors['yellow'])
                 startBashScript = os.path.join(self.botFolder, 'scripts/mcStart.sh')
                 subprocess.Popen(['/bin/bash', startBashScript] + arguments)
-            else:
-                embed = discord.Embed(title='Server Status', description='🔴 Could not determine server status.', color=0xff0000)
+
         except Exception as e:
-            embed = discord.Embed(title='Server Status', description=f'❌ Error: {e}', color=0xff0000)
+            embed = discord.Embed(title='Server Status', description=f'❌ Error: {e}', color=self.colors['red'])
         await ctx.send(embed=embed)
 
-    @commands.command(name='stop-server', help='Stops the MC Server.', hidden=True)
+    @commands.command(name='stop-server', aliases=['stop'], help='[OWNER ONLY] Stops the MC Server.', hidden=True)
     @commands.check(lambda ctx: ctx.author.id == ctx.cog.owner)
-    async def stop_server(self, ctx):
+    async def stopServer(self, ctx):
         arguments = [self.serverFolder, self.serverFile, self.flashMemory]
-        statusBashScript = os.path.join(self.botFolder, 'scripts/mcStatus.sh')
         try:
-            returnCode = subprocess.run(['/bin/bash', statusBashScript] + arguments).returncode
-            if returnCode == 0:
-                embed = discord.Embed(title='Server Status', description='🔻 Server shutting down...', color=0xffcc00)
+            if await isServerOnline(self.serverIp):
+                embed = discord.Embed(title='Server Status', description='🔻 Server is online. Shutting it down...', color=self.colors['yellow'])
                 await ctx.send(embed=embed)
-
                 stopBashScript = os.path.join(self.botFolder, 'scripts/mcStop.sh')
                 subprocess.run(['/bin/bash', stopBashScript] + arguments)
-            elif returnCode == 1:
-                embed = discord.Embed(title='Server Status', description='🛑 Server is not running.', color=0xff0000)
-                await ctx.send(embed=embed)
             else:
-                embed = discord.Embed(title='Server Status', description='❓ Unknown status returned by status check.',
-                                      color=0xff0000)
+                embed = discord.Embed(title='Server Status', description='🛑 Server is not running.', color=self.colors['red'])
                 await ctx.send(embed=embed)
         except Exception as e:
-            embed = discord.Embed(title='Server Error', description=f'❌ Exception occurred: {e}', color=0xff0000)
+            embed = discord.Embed(title='Server Error', description=f'❌ Exception occurred: {e}', color=self.colors['red'])
             await ctx.send(embed=embed)
 
-
-    @commands.command(name='change-prefix', help='Changes the command prefix', hidden=True)
+    @commands.command(name='change-prefix', aliases=['prefix'], help='[OWNER ONLY] Changes the command prefix.', hidden=True)
     @commands.check(lambda ctx: ctx.author.id == ctx.cog.owner)
     async def changePrefix(self, ctx, newPrefix: str = None):
         if not newPrefix:
@@ -193,7 +184,7 @@ class ShulkerCommands(commands.Cog):
         self.bot.command_prefix = newPrefix
         await ctx.send(f'✅ Command prefix changed to: `{newPrefix}`')
 
-    @commands.command(name='add-user', help='Add a user to allowed users (owner only)', hidden=True)
+    @commands.command(name='add-user', help='[OWNER ONLY] Add a user to allowed users.', hidden=True)
     @commands.check(lambda ctx: ctx.author.id == ctx.cog.owner)
     async def addUser(self, ctx, user: discord.User = None):
         if user is None:
@@ -205,30 +196,96 @@ class ShulkerCommands(commands.Cog):
         if userIdString in allowedUsersList:
             await ctx.send(f"ℹ️ User {user} is already in the allowed users list.")
             return
-        # SEND DM TO NEW USER
         try:
-            await user.send(
-                f"👋 You have been granted access to the bot!\n"
-                f"Server IP: `{self.serverIp}`\n"
-                f"To get help from the bot, use the `{self.config['COMMAND_PREFIX']}help` command."
-            )
-            await ctx.send(f"✅ User {user} added and notified via DM.")
+            message = await user.send(f"👋 You have been granted access to the bot!\nReact with ✅ to confirm, or ❌ to cancel.")
+            await ctx.send(f"✅ User {user} notified via DM.")
+            await message.add_reaction("✅")
+            await message.add_reaction("❌")
+            def check(awaitingReaction, awaitingUser):
+                return awaitingUser.id == ctx.author.id and awaitingReaction.message.id == message.id and str(
+                    awaitingReaction.emoji) in ["✅", "❌"]
+            try:
+                reaction, reactingUser = await self.bot.wait_for('reaction_add', timeout=30.0, check=check)
+                print(reactingUser)
+            except asyncio.TimeoutError:
+                await message.edit(content="⏳ Request timed out.")
+                await ctx.send(f"✅ User {user} confirmation timed out.")
+                return
+            if str(reaction.emoji) == "✅":
+                await user.send(f"✅ You now have access to ShulkerPi!\nUse {self.config['COMMAND_PREFIX']}whitelist to request access to the Minecraft server.")
+                await ctx.send(f"✅ User {user} confirmation was accepted.")
+                # ADDED USER TO ALLOWED USERS LIST
+                allowedUsersList.append(userIdString)
+                self.config['ALLOWED_USERS'] = ','.join(allowedUsersList)
+                self.users.append(user.id)
+                # UPDATING ENV FILE
+                envPath = os.path.join(self.botFolder, '.env')
+                editEnvFile(envPath, 'ALLOWED_USERS', self.config['ALLOWED_USERS'])
+                load_dotenv(dotenv_path=envPath)
         except Exception as e:
             await ctx.send(f"⚠️ Could not send DM to {user}. They might have DMs disabled.\nError: {e}")
-        finally:
-            # ADDED USER TO ALLOWED USERS LIST
-            allowedUsersList.append(userIdString)
-            self.config['ALLOWED_USERS'] = ','.join(allowedUsersList)
-            self.users.append(user.id)
-            # UPDATING ENV FILE
-            envPath = os.path.join(self.botFolder, '.env')
-            editEnvFile(envPath, 'ALLOWED_USERS', self.config['ALLOWED_USERS'])
-            load_dotenv(dotenv_path=envPath)
+
+    @commands.command(name='add-username', aliases=['username', 'link'], help='Link your Minecraft username to your Discord account.')
+    @commands.check(lambda ctx: ctx.author.id == ctx.cog.owner or ctx.author.id in ctx.cog.users)
+    async def linkUsername(self, ctx, mcUsername: str = None):
+        if not mcUsername:
+            await ctx.send("⚠️ Please provide your Minecraft username. Example: `!link-username Steve`")
+            return
+        try:
+            response = requests.get(f"https://api.mojang.com/users/profiles/minecraft/{mcUsername}")
+            if response.status_code != 200:
+                await ctx.send("❌ Could not find that Minecraft username.")
+                return
+            data = response.json()
+            uuid = data.get('id')
+            self.usernamesDataframe = readUsernamesCsv(self.usernameCsvPath)
+            usernamesDataframe = self.usernamesDataframe[self.usernamesDataframe['DISCORD_ID'] != ctx.author.id]
+            newEntry = {'DISCORD_NAME': f"{ctx.author.name}#{ctx.author.discriminator}", 'DISCORD_ID': ctx.author.id, 'MINECRAFT_USERNAME': mcUsername, 'MINECRAFT_UUID': uuid}
+            self.usernamesDataframe = pd.concat([usernamesDataframe, pd.DataFrame([newEntry])], ignore_index=True)
+            saveUsernameCsv(self.usernamesDataframe, self.usernameCsvPath)
+            embed = discord.Embed(title="✅ Username Linked", description=f"Minecraft username `{mcUsername}` successfully linked to {ctx.author.mention}.", color=self.colors['green'])
+            embed.set_thumbnail(url=f"https://minotar.net/avatar/{uuid}/64.png")
+            await ctx.send(embed=embed)
+            ownerUser = await self.bot.fetch_user(self.owner)
+            if ownerUser:
+                await ownerUser.send(f"🔗 `{ctx.author}` linked Minecraft username `{mcUsername}` (UUID: `{uuid}`).")
+        except Exception as e:
+            print(e)
+            await ctx.send(f"❌ An error occurred while linking your username: {e}")
+
+    @commands.command(name='remove-username', aliases=['unlink'], help='Unlink your Minecraft username from your Discord account.')
+    @commands.check(lambda ctx: ctx.author.id == ctx.cog.owner or ctx.author.id in ctx.cog.users)
+    async def removeUsername(self, ctx):
+        try:
+            if self.usernamesDataframe.empty or ctx.author.id not in self.usernamesDataframe['DISCORD_ID'].values:
+                await ctx.send("⚠️ You don't have a linked Minecraft username.")
+                return
+            oldEntry = self.usernamesDataframe[self.usernamesDataframe['DISCORD_ID'] == ctx.author.id]
+            oldUsername = oldEntry['MINECRAFT_USERNAME'].values[0] if not oldEntry.empty else "Unknown"
+            self.usernamesDataframe = self.usernamesDataframe[self.usernamesDataframe['DISCORD_ID'] != ctx.author.id]
+            saveUsernameCsv(self.usernamesDataframe, self.usernameCsvPath)
+            embed = discord.Embed(title="✅ Username Removed", description=f"Minecraft username unlinked from {ctx.author.mention}.", color=self.colors['yellow'])
+            await ctx.send(embed=embed)
+            ownerUser = await self.bot.fetch_user(self.owner)
+            if ownerUser:
+                await ownerUser.send(f"❌ `{ctx.author}` removed their linked Minecraft username `{oldUsername}`.")
+        except Exception as e:
+            await ctx.send(f"❌ An error occurred while removing your username: {e}")
+
+    @commands.command(name='flush-usernames', aliases=['flush'], help='[OWNER ONLY] Delete all linked Minecraft usernames.')
+    @commands.check(lambda ctx: ctx.author.id == ctx.cog.owner)
+    async def flushUsernames(self, ctx):
+        try:
+            self.usernamesDataframe = pd.DataFrame(columns=['DISCORD_NAME', 'DISCORD_ID', 'MINECRAFT_USERNAME', 'MINECRAFT_UUID'])
+            saveUsernameCsv(self.usernamesDataframe, self.usernameCsvPath)
+            await ctx.send("🧹 All linked Minecraft usernames have been flushed.")
+        except Exception as e:
+            await ctx.send(f"❌ An error occurred while flushing the usernames: {e}")
 
     @commands.command(name='help')
     async def customHelp(self, ctx):
         prefix = self.config['COMMAND_PREFIX']
-        embed = discord.Embed(title="Available Commands", color=0x00ff00)
+        embed = discord.Embed(title="Available Commands", color=self.colors['green'])
         for command in self.bot.commands:
             if command.hidden:
                 continue
