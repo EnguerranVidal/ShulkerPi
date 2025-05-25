@@ -16,7 +16,7 @@ class ShulkerCommands(commands.Cog):
     def __init__(self, shulkerBot, botConfig, botFolder):
         self.colors = {'green': 0x00ff00, 'yellow': 0xffcc00, 'red': 0xff0000}
         self.usernameCsvPath = os.path.join(botFolder, 'usernames.csv')
-        self.usernamesDataframe = None
+        self.usernamesDataframe = readUsernamesCsv(self.usernameCsvPath)
         self.bot = shulkerBot
         self.config = botConfig
         self.botFolder = botFolder
@@ -282,18 +282,70 @@ class ShulkerCommands(commands.Cog):
         except Exception as e:
             await ctx.send(f"❌ An error occurred while flushing the usernames: {e}")
 
+    @commands.command(name='stats', help="Shows your Minecraft stats.")
+    @commands.check(lambda ctx: ctx.author.id == ctx.cog.owner or ctx.author.id in ctx.cog.users)
+    async def givePlayerStats(self, ctx):
+        try:
+            df = self.usernamesDataframe
+            print(df)
+            userRow = df[df['DISCORD_ID'] == ctx.author.id]
+            if userRow.empty:
+                await ctx.send("⚠️ You don't have a linked Minecraft username.")
+                embed = discord.Embed(title='Player Stats', description="⚠️ You don't have a linked Minecraft username.", color=self.colors['yellow'])
+                return await ctx.author.send(embed=embed)
+            mcUsername, mcUuid = userRow.iloc[0]['MINECRAFT_USERNAME'], userRow.iloc[0]['MINECRAFT_UUID']
+            worldName = next((line.split('=')[1].strip() for line in open(os.path.join(self.serverFolder, 'server.properties')) if line.startswith('level-name=')), None)
+            if not worldName:
+                return await ctx.author.send("❌ Could not find the level name in `server.properties`.")
+            statisticsPath = os.path.join(self.serverFolder, worldName, 'stats')
+            playerStatistics = retrievePlayerStats(statisticsPath, mcUuid, mcUsername)
+            if not playerStatistics:
+                return await ctx.author.send("🛑 You have not yet joined the server.")
+            embed = discord.Embed(title=f"📊 Stats for {playerStatistics.get('NAME', mcUsername)}", color=self.colors['green'])
+            fields = {'Deaths': 'DEATHS', 'Mobs Killed': 'MOB_KILLS', 'Players Killed': 'PLAYER_KILLS', 'Damage Taken': 'DAMAGE_TAKEN',
+                      'Damage Dealt': 'DAMAGE_DEALT', 'Total Play Time': 'PLAY_TIME', 'World Time': 'WORLD_TIME', 'Since Last Death': 'LAST_DEATH',
+                      'Walked': 'WALK_DISTANCE', 'Swum': 'SWIM_DISTANCE', 'Fallen': 'FALL_DISTANCE', 'By Boat': 'BOAT_DISTANCE', 'By Elytra': 'ELYTRA_DISTANCE',
+                      'By Horse': 'HORSE_DISTANCE', 'By Minecart': 'MINECART_DISTANCE', 'Most Block Mined': 'MOST_MINED', 'Most Item Used': 'MOST_USED',
+                      'Most Crafted': 'MOST_CRAFTED', 'Most Mob Killed': 'MOST_KILLED', 'Most Deaths To': 'MOST_KILLED_BY', 'Most Tool Broken': 'MOST_BROKEN',}
+            for label, key in fields.items():
+                value = playerStatistics.get(key, 'N/A')
+                embed.add_field(name=label, value=value, inline=True)
+                embed.set_thumbnail(url=f"https://minotar.net/avatar/{mcUuid}/64.png")
+            return await ctx.author.send(embed=embed)
+        except Exception as e:
+            embed = discord.Embed(title='Server Error', description=f'❌ Exception occurred: {e}', color=self.colors['red'])
+            return await ctx.send(embed=embed)
+
     @commands.command(name='help')
     async def customHelp(self, ctx):
         prefix = self.config['COMMAND_PREFIX']
-        embed = discord.Embed(title="Available Commands", color=self.colors['green'])
-        for command in self.bot.commands:
-            if command.hidden:
-                continue
-            if command.name == "change-prefix" and ctx.author.id != self.owner:
-                continue
-            if command.name == "adduser" and ctx.author.id != self.owner:
-                continue
-            embed.add_field(name=f"{prefix}{command.name}", value=command.help or "No description", inline=False)
+        embed = discord.Embed(title="📜 Available Commands", color=self.colors['green'])
+        embed.add_field(
+            name="🧾 General Commands",
+            value=(
+                f"**{prefix}hello** — Greets you back.\n"
+                f"**{prefix}ip** — Gives the server's IP address.\n"
+                f"**{prefix}seed** — Gives the server's world seed.\n"
+                f"**{prefix}info** — Displays server MOTD, player count, and latency.\n"
+                f"**{prefix}request-server** — Requests the owner to start the server.\n"
+                f"**{prefix}add-username** — Link your Minecraft username to your Discord.\n"
+                f"**{prefix}remove-username** — Unlink your Minecraft username.\n"
+                f"**{prefix}stats** — Gives your player stats on the server.\n"
+            ),
+            inline=False
+        )
+        if ctx.author.id == self.owner:
+            embed.add_field(
+                name="🔐 Owner-Only Commands",
+                value=(
+                    f"**{prefix}start-server** — Starts the MC server.\n"
+                    f"**{prefix}stop-server** — Stops the MC server.\n"
+                    f"**{prefix}change-prefix** — Change the bot's command prefix.\n"
+                    f"**{prefix}add-user** — Add a user to allowed users.\n"
+                    f"**{prefix}flush-usernames** — Delete all linked Minecraft usernames.\n"
+                ),
+                inline=False
+            )
         await ctx.send(embed=embed)
 
 
